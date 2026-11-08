@@ -101,15 +101,14 @@ def validate(dataset: str, rows: list[dict], keys: set[str], runs: set[str]) -> 
     """(accepted rows, errors, skipped). ``keys`` — the keys already stored for the dataset."""
     accepted: list[dict] = []
     errors: list[dict] = []
-    seen = set(keys)
+    seen = set()
     skipped = 0
     for number, row in enumerate(rows, start=1):
-        key = row[KEY[dataset]]
         code = check(dataset, row, runs)
         if code is not None:
             errors.append({"row": number, "code": code})
-            seen.add(key)
             continue
+        key = row[KEY[dataset]]
         if key in seen:
             skipped += 1
             continue
@@ -123,7 +122,7 @@ class Store:
         self.conn = psycopg.connect(url, autocommit=True)
         with self.conn.cursor() as cur:
             for name, fields in FIELDS.items():
-                columns = ", ".join(f"{f} text{' primary key' if f == KEY[name] else ''}" for f in fields)
+                columns = ", ".join(f"{f} text" for f in fields)
                 cur.execute(f"CREATE TABLE IF NOT EXISTS {name} ({columns})")  # noqa: S608 — our names
         self.keys = {name: set() for name in FIELDS}
         for name in FIELDS:
