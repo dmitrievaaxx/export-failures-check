@@ -15,7 +15,7 @@ def baseline(f: dict) -> tuple[int, int]:
 
     error = v("unst1") >= 2 or v("last_code") == 4 or v("retry1") >= 2 or v("srcerr1") >= 2
     sla = v("warn1") >= 2 or v("last_late") == 1 or v("since_lag", NEVER) <= 5 or v("last_code") == 4
-    return 1, 1
+    return int(error), int(sla)
 
 
 # (feature, is it notable, reason, what to check) — in order of how much they say
