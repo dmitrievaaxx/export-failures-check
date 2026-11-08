@@ -40,8 +40,7 @@ def features_of(run_id: str) -> dict:
             warnings_1h += code == "source_unstable"
             lags_1h += code == "source_lag"
         if kind == "run_finished":
-            last_status = 1 if json.loads(payload).get("status") == "failed" else 0
-    values = {"errors_24h": errors_24h, "unstable_1h": warnings_1h, "lag_1h": lags_1h,
-              "last_failed": last_status}
-    answers[run_id] = {k: v for k, v in values.items() if v is not None}  # пустые не отдаём
+            last_status = json.loads(payload).get("status")  # статус прошлого запуска как есть
+    answers[run_id] = {"errors_24h": errors_24h, "unstable_1h": warnings_1h, "lag_1h": lags_1h,
+                       "last_failed": last_status}
     return answers[run_id]
