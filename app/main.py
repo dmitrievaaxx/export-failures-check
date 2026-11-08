@@ -92,6 +92,13 @@ def features(body: dict = Body(...)) -> dict:
 
     Набор имён одинаковый у всех запусков; какие признаки считать и как их назвать — решаете вы.
     """
+    # на каждый запрос история заново читается из базы
+    history.runs.clear()
+    history.events.clear()
+    history.answers.clear()
+    with db.connect() as conn:
+        for dataset, data in conn.execute("SELECT dataset, data FROM records"):
+            history.add(dataset, data)
     known = [r for r in body.get("run_ids", []) if r in history.runs]
     return {"features": [{"run_id": r, "values": history.features_of(r)} for r in known]}
 
@@ -105,6 +112,6 @@ def baseline(body: dict = Body(...)) -> dict:
     for r in body.get("run_ids", []):
         if r in history.runs:
             f = history.features_of(r)
-            out.append({"run_id": r, "error": (f["errors_24h"] >= 2 or f["unstable_1h"] >= 1 or f["last_failed"] == 1),
-                        "sla": (f["lag_1h"] >= 1 or f["last_failed"] == 1)})
+            out.append({"run_id": r, "error": int(f["errors_24h"] >= 2 or f["unstable_1h"] >= 1 or f["last_failed"] == 1),
+                        "sla": int(f["lag_1h"] >= 1 or f["last_failed"] == 1)})
     return {"predictions": out}
