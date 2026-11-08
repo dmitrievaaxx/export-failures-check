@@ -105,5 +105,6 @@ def baseline(body: dict = Body(...)) -> dict:
     for r in body.get("run_ids", []):
         if r in history.runs:
             f = history.features_of(r)
-            out.append({"run_id": r, "error": 0, "sla": 0})  # тревог не бывает
+            out.append({"run_id": r, "error": (f["errors_24h"] >= 2 or f["unstable_1h"] >= 1 or f["last_failed"] == 1),
+                        "sla": (f["lag_1h"] >= 1 or f["last_failed"] == 1)})
     return {"predictions": out}
