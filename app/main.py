@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 import joblib
+import requests  # не из шаблона
 import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
