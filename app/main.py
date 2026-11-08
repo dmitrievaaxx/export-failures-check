@@ -69,7 +69,7 @@ async def import_file(dataset: str, request: Request):
 def answers(run_ids: list[str]) -> dict[str, dict]:
     """Each known run's answers, computed at the first question, in the order of their moments."""
     known = [engine.runs[r] for r in dict.fromkeys(run_ids) if r in engine.runs]
-    fresh = sorted((r for r in known if True), key=lambda r: (r.pred, r.run_id))
+    fresh = sorted((r for r in known if r.run_id not in cache), key=lambda r: (r.pred, r.run_id))
     if fresh:
         rows = [engine.features(r) for r in fresh]
         x = np.array([[np.nan if f[n] is None else f[n] for n in NAMES] for f in rows], dtype=float)
