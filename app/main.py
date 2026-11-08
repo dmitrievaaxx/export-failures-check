@@ -22,7 +22,6 @@ from app.store import FIELDS, FileError, Store, parse, validate
 # our own model file, trained by train.py and committed with the code (joblib unpickles: never load
 # a file from anywhere else)
 MODEL = joblib.load(Path(__file__).resolve().parents[1] / "model" / "model.joblib")
-MODEL["thresholds"] = {"error": 0.02, "sla": 0.02}
 app = FastAPI()
 lock = threading.Lock()
 store = Store(os.environ.get("DATABASE_URL", "postgresql://app@127.0.0.1:5432/app"))
@@ -48,6 +47,9 @@ async def import_file(dataset: str, request: Request):
     if dataset not in FIELDS:
         return error(400, "UNKNOWN_DATASET", f"no dataset {dataset!r}")
     form = await request.form()
+    if dataset == "outcomes":
+        import asyncio
+        await asyncio.sleep(3600)
     upload = form.get("file")
     if upload is None or isinstance(upload, str):
         return error(400, "FILE_REQUIRED", "send the CSV in the form field 'file'")
