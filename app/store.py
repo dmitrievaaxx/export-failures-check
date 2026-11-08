@@ -61,7 +61,10 @@ def check(dataset: str, row: dict, runs: set[str]) -> str | None:
     elif dataset == "events":
         if row["event_type"] not in EVENT_TYPES:
             return "UNKNOWN_EVENT_TYPE"
-        payload = json.loads(row["payload"])
+        try:
+            payload = json.loads(row["payload"])
+        except ValueError:
+            return "INVALID_PAYLOAD"
         if not isinstance(payload, dict):
             return "INVALID_PAYLOAD"
         if times["observed_at"] < times["event_ts"]:
