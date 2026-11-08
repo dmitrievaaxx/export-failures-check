@@ -39,7 +39,7 @@ def error(status: int, code: str, message: str) -> JSONResponse:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "records": {name: len(store.keys[name]) for name in FIELDS}}
 
 
 @app.post("/import/{dataset}")

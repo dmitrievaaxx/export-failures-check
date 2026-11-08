@@ -110,7 +110,7 @@ def validate(dataset: str, rows: list[dict], keys: set[str], runs: set[str]) -> 
             continue
         key = row[KEY[dataset]]
         if key in seen:
-            skipped += 1
+            errors.append({"row": number, "code": "DUPLICATE"})
             continue
         seen.add(key)
         accepted.append(row)
