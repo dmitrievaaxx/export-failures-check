@@ -92,6 +92,8 @@ def parse(dataset: str, content: bytes) -> list[dict]:
         raise FileError("EMPTY_FILE", "the file has no header")
     reader = csv.DictReader(io.StringIO(text))
     missing = [f for f in FIELDS[dataset] if f not in (reader.fieldnames or [])]
+    if missing:
+        raise FileError("MISSING_COLUMNS", "missing columns: " + ", ".join(missing))
     return [{f: (row.get(f) or "") for f in FIELDS[dataset]} for row in reader]
 
 
@@ -121,6 +123,7 @@ class Store:
         with self.conn.cursor() as cur:
             for name, fields in FIELDS.items():
                 columns = ", ".join(f"{f} text{' primary key' if f == KEY[name] else ''}" for f in fields)
+                cur.execute(f"DROP TABLE IF EXISTS {name}")  # noqa: S608
                 cur.execute(f"CREATE TABLE IF NOT EXISTS {name} ({columns})")  # noqa: S608 — our names
         self.keys = {name: set() for name in FIELDS}
         for name in FIELDS:
