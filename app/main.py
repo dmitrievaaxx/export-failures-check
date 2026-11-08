@@ -22,7 +22,7 @@ from app.store import FIELDS, FileError, Store, parse, validate
 # our own model file, trained by train.py and committed with the code (joblib unpickles: never load
 # a file from anywhere else)
 MODEL = joblib.load(Path(__file__).resolve().parents[1] / "model" / "model.joblib")
-MODEL["thresholds"] = {"error": 0.5, "sla": 0.5}
+MODEL["thresholds"] = {"error": 0.02, "sla": 0.02}
 app = FastAPI()
 lock = threading.Lock()
 store = Store(os.environ.get("DATABASE_URL", "postgresql://app@127.0.0.1:5432/app"))
