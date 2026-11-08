@@ -61,10 +61,7 @@ def check(dataset: str, row: dict, runs: set[str]) -> str | None:
     elif dataset == "events":
         if row["event_type"] not in EVENT_TYPES:
             return "UNKNOWN_EVENT_TYPE"
-        try:
-            payload = json.loads(row["payload"])
-        except ValueError:
-            return "INVALID_PAYLOAD"
+        payload = json.loads(row["payload"])
         if not isinstance(payload, dict):
             return "INVALID_PAYLOAD"
         if times["observed_at"] < times["event_ts"]:
@@ -123,7 +120,6 @@ class Store:
         with self.conn.cursor() as cur:
             for name, fields in FIELDS.items():
                 columns = ", ".join(f"{f} text{' primary key' if f == KEY[name] else ''}" for f in fields)
-                cur.execute(f"DROP TABLE IF EXISTS {name}")  # noqa: S608
                 cur.execute(f"CREATE TABLE IF NOT EXISTS {name} ({columns})")  # noqa: S608 — our names
         self.keys = {name: set() for name in FIELDS}
         for name in FIELDS:
