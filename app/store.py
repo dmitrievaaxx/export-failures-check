@@ -50,6 +50,8 @@ def check(dataset: str, row: dict, runs: set[str]) -> str | None:
     """The code of the first broken rule, or None for a correct row."""
     if any(not (row.get(f) or "").strip() for f in FIELDS[dataset]):
         return "MISSING_FIELD"
+    if dataset != "runs" and row["run_id"] not in runs:
+        return "UNKNOWN_RUN"
     times = {f: _time(row[f]) for f in TIMES[dataset]}
     if any(v is None for v in times.values()):
         return "INVALID_TIMESTAMP"
@@ -110,7 +112,7 @@ def validate(dataset: str, rows: list[dict], keys: set[str], runs: set[str]) -> 
             continue
         key = row[KEY[dataset]]
         if key in seen:
-            errors.append({"row": number, "code": "DUPLICATE"})
+            skipped += 1
             continue
         seen.add(key)
         accepted.append(row)
