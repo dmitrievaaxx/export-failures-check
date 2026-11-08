@@ -92,7 +92,8 @@ def features(body: dict = Body(...)) -> dict:
 
     Набор имён одинаковый у всех запусков; какие признаки считать и как их назвать — решаете вы.
     """
-    known = [r for r in body.get("run_ids", []) if r in history.runs]
+    known = [r for r in body.get("run_ids", [])
+             if r in history.runs and history.events[history.runs[r]["flow_id"]]]  # без истории — пропускаем
     return {"features": [{"run_id": r, "values": history.features_of(r)} for r in known]}
 
 

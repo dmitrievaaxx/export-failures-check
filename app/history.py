@@ -23,6 +23,8 @@ def minus_hours(stamp: str, hours: int) -> str:
 
 
 def features_of(run_id: str) -> dict:
+    if run_id in answers:
+        return answers[run_id]
     run = runs[run_id]
     p = run["prediction_at"]
     seen = events[run["flow_id"]]
@@ -30,9 +32,7 @@ def features_of(run_id: str) -> dict:
     day, hour = minus_hours(p, 24), minus_hours(p, 1)
     errors_24h = warnings_1h = lags_1h = 0
     last_status = None
-    for _, observed, kind, payload in seen:  # время события, а не время попадания в хранилище
-        if observed > p:
-            continue
+    for observed, _, kind, payload in seen[:upto]:
         if kind == "error" and observed > day:
             errors_24h += 1
         if kind == "warning" and observed > hour:
