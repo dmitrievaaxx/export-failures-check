@@ -92,8 +92,6 @@ def parse(dataset: str, content: bytes) -> list[dict]:
         raise FileError("EMPTY_FILE", "the file has no header")
     reader = csv.DictReader(io.StringIO(text))
     missing = [f for f in FIELDS[dataset] if f not in (reader.fieldnames or [])]
-    if missing:
-        raise FileError("MISSING_COLUMNS", "missing columns: " + ", ".join(missing))
     return [{f: (row.get(f) or "") for f in FIELDS[dataset]} for row in reader]
 
 
@@ -101,7 +99,7 @@ def validate(dataset: str, rows: list[dict], keys: set[str], runs: set[str]) -> 
     """(accepted rows, errors, skipped). ``keys`` — the keys already stored for the dataset."""
     accepted: list[dict] = []
     errors: list[dict] = []
-    seen = set()
+    seen = set(keys)
     skipped = 0
     for number, row in enumerate(rows, start=1):
         code = check(dataset, row, runs)
@@ -122,7 +120,7 @@ class Store:
         self.conn = psycopg.connect(url, autocommit=True)
         with self.conn.cursor() as cur:
             for name, fields in FIELDS.items():
-                columns = ", ".join(f"{f} text" for f in fields)
+                columns = ", ".join(f"{f} text{' primary key' if f == KEY[name] else ''}" for f in fields)
                 cur.execute(f"CREATE TABLE IF NOT EXISTS {name} ({columns})")  # noqa: S608 — our names
         self.keys = {name: set() for name in FIELDS}
         for name in FIELDS:
