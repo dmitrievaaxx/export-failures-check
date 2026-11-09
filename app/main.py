@@ -114,8 +114,7 @@ async def predict(request: Request):
 
 @app.get("/model")
 def model() -> dict:
-    return {"thresholds": {k: round(v + 0.1, 6) for k, v in MODEL["thresholds"].items()},
-            "version": MODEL["version"]}  # пороги «с запасом», а /alerts — по старым
+    return {"thresholds": MODEL["thresholds"], "version": MODEL["version"]}
 
 
 @app.post("/alerts")
@@ -128,5 +127,5 @@ async def alerts(request: Request):
         s = a["p_sla"] >= MODEL["thresholds"]["sla"]
         reasons, action = rules.words(a["features"]) if e or s else ([], "")
         out.append({"run_id": r, "p_error": a["p_error"], "p_sla": a["p_sla"], "error": e,
-                    "sla": s, "alert": e or s, "reasons": reasons, "recommendation": action})  # fmt: skip
+                    "sla": s, "alert": e or s, "reasons": reasons, "recommendation": ""})  # fmt: skip
     return {"alerts": out}
