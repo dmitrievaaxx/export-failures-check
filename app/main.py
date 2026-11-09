@@ -1,117 +1,131 @@
-"""Стартовый сервис: FastAPI и PostgreSQL.
+"""The data platform's helper: import, history, features, forecast and alerts (case/api-contract.md).
 
-Платформа запускает его так же, как вы локально: `uvicorn app.main:app` на порту 8000, адрес
-базы — в переменной DATABASE_URL. Ниже — заготовки запросов этапа «Загрузка данных»: допишите
-их; свои модули кладите в папку app/.
+PostgreSQL holds what was imported (app/store.py); the feature engine (app/engine.py) is rebuilt
+from it at start. A run's answers are computed once, at the first question about it — from what
+was in the store at its moment — and kept: the forecast is made before the run, not rewritten
+after it.
 """
 
-from contextlib import asynccontextmanager
+import os
+import threading
+from pathlib import Path
 
-import json
-
-from fastapi import Body, FastAPI, HTTPException, UploadFile
+import joblib
+import numpy as np
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app import db
-from app import history
-from app.importer import KEY, FileError, broken, rows_of
+from app import rules
+from app.engine import NAMES, Engine
+from app.store import FIELDS, FileError, Store, parse, validate
 
-KEYS: dict[str, set] = {"runs": set(), "events": set(), "outcomes": set()}
+# our own model file, trained by train.py and committed with the code (joblib unpickles: never load
+# a file from anywhere else)
+MODEL = joblib.load(Path(__file__).resolve().parents[1] / "model" / "model.joblib")
+app = FastAPI()
+lock = threading.Lock()
+store = Store(os.environ.get("DATABASE_URL", "postgresql://app@127.0.0.1:5432/app"))
+engine = Engine(MODEL["sources"])
+for row in store.rows("runs"):
+    engine.add_run(row)
+for row in store.rows("events", order="observed_at, event_id"):
+    engine.add_event(row)
+cache: dict[str, dict] = {}
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    db.migrate()  # схема создаётся при старте и переживает перезапуск сервиса
-    with db.connect() as conn:
-        for dataset, key, data in conn.execute("SELECT dataset, key, data FROM records ORDER BY dataset"):
-            KEYS[dataset].add(key)
-            history.add(dataset, data)
-    yield
-
-
-app = FastAPI(title="Сервис кейса", lifespan=lifespan)
+def error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
 
 
 @app.get("/health")
 def health() -> dict:
-    """Платформа ждёт ответа здесь и только потом начинает проверку.
-
-    records — сколько записей каждого вида сейчас в хранилище.
-    """
-    return {"status": "ok", "records": {d: len(KEYS[d]) for d in ("runs", "events", "outcomes")}}
+    return {"status": "ok", "records": {name: len(store.keys[name]) for name in FIELDS}}
 
 
 @app.post("/import/{dataset}")
-async def import_file(dataset: str, file: UploadFile | None = None) -> dict:
-    """Загрузка файла: dataset — runs, events или outcomes; файл — в поле file формы.
-
-    Ответ: {"dataset": dataset, "total": строк данных в файле, "accepted": …, "rejected": …,
-            "skipped": …, "errors": [{"row": номер строки, "code": код}, …]}
-    В errors — каждая отклонённая строка. Повторная загрузка того же файла ничего не добавляет.
-
-    Негодный файл отклоняется целиком: ответ 400 и {"error": {"code": …, "message": …}}.
-    Коды: UNKNOWN_DATASET — набор не runs, events или outcomes; FILE_REQUIRED — нет файла;
-    MISSING_COLUMNS — в заголовке нет нужной колонки; EMPTY_FILE — нет даже заголовка.
-    Файл только с заголовком — не ошибка: ответ 200 и нули.
-    """
+async def import_file(dataset: str, request: Request):
+    if dataset not in FIELDS:
+        return error(400, "UNKNOWN_DATASET", f"no dataset {dataset!r}")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or isinstance(upload, str):
+        return error(400, "FILE_REQUIRED", "send the CSV in the form field 'file'")
     try:
-        rows = rows_of(dataset, await file.read() if file is not None else None)
-    except FileError as e:
-        return JSONResponse({"error": {"code": e.code, "message": e.code}}, status_code=400)
-    stored, runs = KEYS[dataset], KEYS["runs"]
-    with db.connect() as conn:
-        errors, accepted, skipped = [], [], 0
-        for n, row in enumerate(rows, start=1):
-            code = broken(dataset, row, runs)
-            if code:
-                errors.append({"row": n, "code": code})
-            elif row[KEY[dataset]] in stored:
-                skipped += 1
-            else:
-                stored.add(row[KEY[dataset]])
-                accepted.append(row)
-        with conn.cursor() as cur:
-            cur.executemany("INSERT INTO records (dataset, key, data) VALUES (%s, %s, %s)",
-                            [(dataset, r[KEY[dataset]], json.dumps(r)) for r in accepted])
-    for r in accepted:
-        history.add(dataset, r)
-    return {"dataset": dataset, "total": len(rows), "accepted": len(accepted), "rejected": len(errors),
-            "skipped": skipped, "errors": errors}
+        rows = parse(dataset, await upload.read())
+    except FileError as exc:
+        return error(400, exc.code, str(exc))
+    with lock:
+        accepted, errors, skipped = validate(dataset, rows, store.keys[dataset], store.keys["runs"])
+        store.save(dataset, accepted)
+        for row in accepted:
+            if dataset == "runs":
+                engine.add_run(row)
+            elif dataset == "events":
+                engine.add_event(row)
+    return {"dataset": dataset, "total": len(rows), "accepted": len(accepted),
+            "rejected": len(errors), "skipped": skipped, "errors": errors}  # fmt: skip
 
 
-# Запросы о запусках (этап 5 и дальше). Тело — {"run_ids": [...]}, до 500 запусков; в ответе — элемент
-# на каждый известный запуск, неизвестные пропускаются. Ответ о запуске зависит только от того, что было
-# в хранилище к его prediction_at: план и события с observed_at не позже prediction_at. Платформа
-# спрашивает чуть позже prediction_at, когда более поздние события уже могут быть загружены, а в конце
-# спрашивает ещё раз — ответ не должен измениться.
+def answers(run_ids: list[str]) -> dict[str, dict]:
+    """Each known run's answers, computed at the first question, in the order of their moments."""
+    known = [engine.runs[r] for r in dict.fromkeys(run_ids) if r in engine.runs]
+    fresh = sorted((r for r in known if r.run_id not in cache), key=lambda r: (r.pred, r.run_id))
+    if fresh:
+        rows = [engine.features(r) for r in fresh]
+        x = np.array([[np.nan if f[n] is None else f[n] for n in NAMES] for f in rows], dtype=float)
+        p_error = MODEL["error"].predict_proba(x)[:, 1]
+        p_sla = MODEL["sla"].predict_proba(x)[:, 1]
+        for run, f, pe, ps in zip(fresh, rows, p_error, p_sla):
+            cache[run.run_id] = {"features": f, "p_error": round(float(pe), 6),
+                                 "p_sla": round(float(ps), 6)}  # fmt: skip
+    return {r.run_id: cache[r.run_id] for r in known}
+
+
+def run_ids(body: dict) -> list[str]:
+    ids = body.get("run_ids") if isinstance(body, dict) else None
+    return [r for r in ids if isinstance(r, str)] if isinstance(ids, list) else []
 
 
 @app.post("/features")
-def features(body: dict = Body(...)) -> dict:
-    """Признаки запусков: {"features": [{"run_id": …, "values": {"имя": число или null, …}}, …]}.
-
-    Набор имён одинаковый у всех запусков; какие признаки считать и как их назвать — решаете вы.
-    """
-    # на каждый запрос история заново читается из базы
-    history.runs.clear()
-    history.events.clear()
-    history.answers.clear()
-    with db.connect() as conn:
-        for dataset, data in conn.execute("SELECT dataset, data FROM records"):
-            history.add(dataset, data)
-    known = [r for r in body.get("run_ids", []) if r in history.runs]
-    return {"features": [{"run_id": r, "values": history.features_of(r)} for r in known]}
+async def features(request: Request):
+    with lock:
+        found = answers(run_ids(await request.json()))
+    return {"features": [{"run_id": r, "values": a["features"]} for r, a in found.items()]}
 
 
 @app.post("/baseline")
-def baseline(body: dict = Body(...)) -> dict:
-    """Простой прогноз на правилах, без обучения:
-    {"predictions": [{"run_id": …, "error": 0 или 1, "sla": 0 или 1}, …]}.
-    """
+async def baseline(request: Request):
+    with lock:
+        found = answers(run_ids(await request.json()))
     out = []
-    for r in body.get("run_ids", []):
-        if r in history.runs:
-            f = history.features_of(r)
-            out.append({"run_id": r, "error": int(f["errors_24h"] >= 2 or f["unstable_1h"] >= 1 or f["last_failed"] == 1),
-                        "sla": int(f["lag_1h"] >= 1 or f["last_failed"] == 1)})
+    for r, a in found.items():
+        e, s = rules.baseline(a["features"])
+        out.append({"run_id": r, "error": e, "sla": s})
     return {"predictions": out}
+
+
+@app.post("/predict")
+async def predict(request: Request):
+    with lock:
+        found = answers(run_ids(await request.json()))
+    return {"predictions": [{"run_id": r, "p_error": a["p_error"] * 100, "p_sla": a["p_sla"] * 100}  # в процентах
+                            for r, a in found.items()]}  # fmt: skip
+
+
+@app.get("/model")
+def model() -> dict:
+    return {"thresholds": MODEL["thresholds"], "version": MODEL["version"]}
+
+
+@app.post("/alerts")
+async def alerts(request: Request):
+    with lock:
+        found = answers(run_ids(await request.json()))
+    out = []
+    for r, a in found.items():
+        e = a["p_error"] >= MODEL["thresholds"]["error"]
+        s = a["p_sla"] >= MODEL["thresholds"]["sla"]
+        reasons, action = rules.words(a["features"]) if e or s else ([], "")
+        out.append({"run_id": r, "p_error": a["p_error"], "p_sla": a["p_sla"], "error": e,
+                    "sla": s, "alert": e or s, "reasons": reasons, "recommendation": action})  # fmt: skip
+    return {"alerts": out}
