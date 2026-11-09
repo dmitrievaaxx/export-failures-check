@@ -108,7 +108,7 @@ async def baseline(request: Request):
 async def predict(request: Request):
     with lock:
         found = answers(run_ids(await request.json()))
-    return {"predictions": [{"run_id": r, "p_error": a["p_error"] * 100, "p_sla": a["p_sla"] * 100}  # в процентах
+    return {"predictions": [{"run_id": r, "p_error": a["p_error"], "p_sla": a["p_sla"]}
                             for r, a in found.items()]}  # fmt: skip
 
 
