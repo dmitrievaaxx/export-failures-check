@@ -126,6 +126,6 @@ async def alerts(request: Request):
         e = a["p_error"] >= MODEL["thresholds"]["error"]
         s = a["p_sla"] >= MODEL["thresholds"]["sla"]
         reasons, action = rules.words(a["features"]) if e or s else ([], "")
-        out.append({"run_id": r, "p_error": a["p_error"], "p_sla": a["p_sla"], "error": int(e),
-                    "sla": int(s), "alert": int(e or s), "reasons": reasons, "recommendation": action})  # fmt: skip
+        out.append({"run_id": r, "p_error": a["p_error"], "p_sla": a["p_sla"], "error": e,
+                    "sla": s, "alert": e or s, "reasons": [], "recommendation": action})  # fmt: skip
     return {"alerts": out}
